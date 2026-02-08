@@ -9,7 +9,7 @@ package storage
 import (
 	"glc/ldb/storage/logdata"
 	"sync"
-
+	"log"
 	"github.com/gotoeasy/glang/cmn"
 )
 
@@ -111,8 +111,16 @@ func (s *LogDataStorageHandle) GetLogDataDocument(id uint32) *logdata.LogDataDoc
 // 取日志（模型）
 func (s *LogDataStorageHandle) GetLogDataModel(id uint32) *logdata.LogDataModel {
 	d := s.GetLogDataDocument(id)
-	m := new(logdata.LogDataModel)
-	m.LoadJson(d.Content)
+	if d == nil {
+        log.Printf("GetLogDataModel: document not found for id=%d", id)
+        return nil
+    }
+	m   := new(logdata.LogDataModel)
+	err := m.LoadJson(d.Content)
+	if err != nil {
+		log.Printf("GetLogDataModel: load json error for id=%d, %s", id, err.Error())
+		return nil
+	}
 	return m
 }
 
