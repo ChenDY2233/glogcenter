@@ -1,0 +1,52 @@
+# 来源 ：https://github.com/azel-ko/glogcenter/blob/main/Dockerfile
+# 来源2：https://github.com/gui156/glogcenter/blob/5d70366c4448090b852ff7b052007da3db47cdc2/glc/Dockerfile
+
+
+# ------------------------------- # 第一阶段：构建前端 -----------------------------------------
+
+FROM chenjc/glc-web:v1 AS frontend-builder
+
+
+# ------------------------------- 第二阶段：构建Go应用 -----------------------------------------
+
+FROM golang:1.23-alpine AS backend-builder
+
+WORKDIR /app
+
+# 复制Go代码
+COPY glc /app
+
+# 设置Go代理以加速依赖下载
+RUN go env -w GO111MODULE=on && \
+    go env -w GOPROXY=https://goproxy.cn,direct
+
+# 复制前端构建产物到正确位置
+COPY --from=frontend-builder /app/dist /app/www/web/dist
+
+# 构建Go应用
+RUN go build -ldflags "-w -s" -o glc
+
+
+# ------------------------------- 第三阶段：最终运行镜像 -----------------------------------------
+
+# 
+FROM alpine:latest AS runner
+
+# 复制Go二进制文件
+COPY --from=backend-builder /app/glc /usr/local/bin/glc
+
+# 复制前端构建产物
+# COPY --from=frontend-builder /app/dist /usr/local/bin/www/web/dist
+
+# 设置时区和基础工具
+RUN alpine_version=$(cat /etc/issue | head -1 | awk '{print $5}') \
+    && echo "https://mirrors.aliyun.com/alpine/v${alpine_version}/main/" > /etc/apk/repositories \
+    && apk update && apk upgrade && apk add --no-cache bash bash-doc bash-completion tzdata \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shanghai" > /etc/timezone \
+    && rm -rf /var/cache/apk/*
+
+# 暴露端口
+EXPOSE 8080
+
+# 设置启动命令
+ENTRYPOINT ["glc", "--docker"]
