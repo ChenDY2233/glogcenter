@@ -1,7 +1,10 @@
-# 来源：https://github.com/azel-ko/glogcenter/blob/main/Dockerfile
+# 来源 ：https://github.com/azel-ko/glogcenter/blob/main/Dockerfile
+# 来源2：https://github.com/gui156/glogcenter/blob/5d70366c4448090b852ff7b052007da3db47cdc2/glc/Dockerfile
 
-# 第一阶段：构建前端
-FROM node:18-alpine AS frontend-builder
+
+# ------------------------------- # 第一阶段：构建前端 -----------------------------------------
+
+FROM node:24-alpine AS frontend-builder
 
 WORKDIR /app
 
@@ -12,14 +15,17 @@ COPY glc/www/web /app
 #RUN apk add --no-cache python3 make g++
 
 # 全局安装pnpm
-RUN npm install -g pnpm
+# RUN npm install -g pnpm
+RUN corepack enable pnpm
 
 # 使用pnpm安装依赖并构建前端
 RUN pnpm config set registry https://repo.huaweicloud.com/repository/npm/ && \
-    pnpm install --no-frozen-lockfile && \
+    pnpm install --frozen-lockfile && \
     pnpm run build
 
-# 第二阶段：构建Go应用
+
+# ------------------------------- 第二阶段：构建Go应用 -----------------------------------------
+
 FROM golang:1.23-alpine AS backend-builder
 
 WORKDIR /app
@@ -37,14 +43,17 @@ COPY --from=frontend-builder /app/dist /app/www/web/dist
 # 构建Go应用
 RUN go build -ldflags "-w -s" -o glc
 
-# 第三阶段：最终运行镜像
-FROM alpine:3.18 AS runner
+
+# ------------------------------- 第三阶段：最终运行镜像 -----------------------------------------
+
+# 
+FROM alpine:latest AS runner
 
 # 复制Go二进制文件
-COPY --from=backend-builder /app/glc /usr/local/bin/
+COPY --from=backend-builder /app/glc /usr/local/bin/glc
 
 # 复制前端构建产物
-COPY --from=frontend-builder /app/dist /usr/local/bin/www/web/dist
+# COPY --from=frontend-builder /app/dist /usr/local/bin/www/web/dist
 
 # 设置时区和基础工具
 RUN alpine_version=$(cat /etc/issue | head -1 | awk '{print $5}') \
