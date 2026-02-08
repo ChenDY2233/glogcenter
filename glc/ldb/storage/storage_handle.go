@@ -119,6 +119,7 @@ func (s *LogDataStorageHandle) GetLogDataModel(id uint32) *logdata.LogDataModel 
 	err := m.LoadJson(d.Content)
 	if err != nil {
 		log.Printf("GetLogDataModel: load json error for id=%d, %s", id, err.Error())
+		log.Printf("GetLogDataModel: %s", d.Content)
 		return nil
 	}
 	return m
