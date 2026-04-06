@@ -41,6 +41,12 @@
               <el-input v-model="formData.user" placeholder="请输入用户" maxlength="100" style="width:420px;"
                 @keyup.enter="() => { $emitter.emit('fnSearch'); }" />
             </el-form-item>
+            <el-form-item label="排序">
+              <el-radio-group v-model="formData.sortOrder" :disabled="searchNearMode">
+                <el-radio-button label="desc">由近及远</el-radio-button>
+                <el-radio-button label="asc">由远及近</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
           </el-row>
         </SearchForm>
       </template>
@@ -102,6 +108,7 @@ const opt = {
   withoutSearchForm: true,
 };
 const { formData, visible, tableData, tableHeight, pageSettingStore, showTableLoadding } = usePageMainHooks(opt);
+formData.value.sortOrder = formData.value.sortOrder || 'desc';
 
 const showTestBtn = ref(false); // 是否显示生成测试数据按钮
 const autoSearchMode = ref(false); // 自动查询
@@ -354,6 +361,7 @@ function search() {
   data.datetimeFrom = (formData.value.datetime || ['', ''])[0];
   data.datetimeTo = (formData.value.datetime || ['', ''])[1];
   data.user = formData.value.user;
+  data.sortOrder = formData.value.sortOrder || 'desc';
   if (searchNearMode.value) {
     data.oldNearId = oldNearId.value;
     data.newNearId = newNearId.value;
@@ -380,7 +388,9 @@ function search() {
 
           nextTick(() => {
             const step = 30;
-            const down = oldNearId.value == 0 || newNearId.value <= oldNearId.value; // 向下定位检索
+            const down = oldNearId.value == 0 || ((formData.value.sortOrder || 'desc') == 'asc'
+              ? newNearId.value >= oldNearId.value
+              : newNearId.value <= oldNearId.value); // 向下定位检索
             let scrollTop = down ? (-7 * step) : (-15 * step); // 滚动到合适位置（向下时上部7行新日志，剩余下部较大空间给旧日志展示;向上时上部固定留出15行显示新日志）
             for (let i = 0; i < tableData.value.length; i++) {
               if (newNearId.value == tableData.value[i].id) {

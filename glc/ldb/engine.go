@@ -157,7 +157,14 @@ func (e *Engine) Search(cond *search.SearchCondition) *search.SearchResult {
 			// 相邻检索模式的判断及条件准备
 			max := conf.GetNearSearchSize()
 			cond.CurrentId = cond.NewNearId
-			isForward := cond.OldNearId < 1 || cond.NewNearId < cond.OldNearId // 是否向下检索更多的旧日志
+			isForward := cond.OldNearId < 1
+			if !isForward {
+				if cond.IsOrderAsc() {
+					isForward = cond.NewNearId > cond.OldNearId
+				} else {
+					isForward = cond.NewNearId < cond.OldNearId
+				}
+			}
 
 			// 搜索更多的新数据
 			// 反向检索前x条

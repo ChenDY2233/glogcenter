@@ -5,8 +5,9 @@
         <div :title="verInfo" style="width: 34px;color:white;text-align:center;cursor:pointer;" @click="clickLogo">
           <img src="/image/glc.png" style="width:34px;margin-top:9px;" />
         </div>
-        <div style="text-align:center;">
+        <div style="display:flex;align-items:center;text-align:center;">
           <img src="/image/title.png" style="height:32px;margin-top:11px;margin-left:26px" />
+          <span v-if="versionText" class="version-text" :title="verInfo">{{ versionText }}</span>
         </div>
       </div>
     </template>
@@ -73,6 +74,7 @@ import { userLogout } from '~/api';
 
 const router = useRouter();
 const verInfo = ref('');
+const versionText = ref('');
 const tokenStore = useTokenStore();
 const themeStore = useThemeStore();
 const formData = ref({ oldPassword: '', password1: '', password2: '' });
@@ -177,6 +179,7 @@ function checkVersion() {
     // 从后台服务读取当前运行版本，避免多处维护版本号
     $post('/v1/version/info', {}, null, { 'Content-Type': 'application/x-www-form-urlencoded' }).then(rs => {
       if (rs.success) {
+        versionText.value = rs.result.version || ''
         verInfo.value = rs.result.version
         if (rs.result.latest && normalizeVer(rs.result.version) < normalizeVer(rs.result.latest)) {
           verInfo.value = `当前版本 ${rs.result.version} ，有新版本 ${rs.result.latest} 可更新`
@@ -207,6 +210,16 @@ div.el-popper.el-dropdown__popper.el-popper {
 </style>
 
 <style scoped lang="scss">
+.version-text {
+  margin-top: 13px;
+  margin-left: 12px;
+  font-size: 12px;
+  color: v-bind('headerColor');
+  opacity: 0.9;
+  white-space: nowrap;
+  cursor: default;
+}
+
 .icon-item {
   color: v-bind('headerColor');
 

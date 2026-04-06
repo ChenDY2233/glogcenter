@@ -36,6 +36,11 @@ type SearchCondition struct {
 	Systems          []string // 【内部用】有权限的系统名（一定有值，第一个元素是“*”时表示全部）
 	OrgSystem        string   // 【内部用】保存输入的系统名条件
 	OrgSystems       []string // 【内部用】保存有权限的系统名（一定有值，第一个元素是“*”时表示全部）
+	SortOrder        string   // asc=positive, desc=reverse
+}
+
+func (c *SearchCondition) IsOrderAsc() bool {
+	return cmn.EqualsIngoreCase(c.SortOrder, "asc")
 }
 
 type SearchResult struct {
@@ -98,6 +103,9 @@ func SearchWordIndex(storeName string, cond *SearchCondition) *SearchResult {
 		}
 		widxs = append(widxs, widxStorage)
 	}
+	if cond.IsOrderAsc() {
+		return findSameAsc(cond, minDocumentId, maxDocumentId, storeLogData, widxs...)
+	}
 	return findSame(cond, minDocumentId, maxDocumentId, storeLogData, widxs...)
 }
 
@@ -159,6 +167,75 @@ func SearchLogData(storeName string, cond *SearchCondition) *SearchResult {
 	}
 
 	// 开始检索
+	if cond.IsOrderAsc() && cond.NewNearId == 0 {
+		if cond.CurrentId == 0 {
+			min := minDocumentId
+			max := maxDocumentId
+			if max > totalCount {
+				max = totalCount
+			}
+
+			for i := min; i <= max; i++ {
+				md, ok := getMatchedLogDataById(storeLogData, cond, i, allloglevels, noLogLevels)
+				if !ok {
+					continue
+				}
+				rs.Data = append(rs.Data, md)
+				rsCnt++
+				if rsCnt >= cond.SearchSize {
+					break
+				}
+			}
+		} else if cond.Forward {
+			if totalCount > cond.CurrentId {
+				min := cond.CurrentId + 1
+				max := maxDocumentId
+				if min < minDocumentId {
+					min = minDocumentId
+				}
+				if max > totalCount {
+					max = totalCount
+				}
+
+				for i := min; i <= max; i++ {
+					md, ok := getMatchedLogDataById(storeLogData, cond, i, allloglevels, noLogLevels)
+					if !ok {
+						continue
+					}
+					rs.Data = append(rs.Data, md)
+					rsCnt++
+					if rsCnt >= cond.SearchSize {
+						break
+					}
+				}
+			}
+		} else if cond.CurrentId > 1 {
+			min := minDocumentId
+			max := cond.CurrentId - 1
+			if max > maxDocumentId {
+				max = maxDocumentId
+			}
+
+			var ary []*logdata.LogDataModel
+			for i := max; i >= min; i-- {
+				md, ok := getMatchedLogDataById(storeLogData, cond, i, allloglevels, noLogLevels)
+				if !ok {
+					continue
+				}
+				rsCnt++
+				ary = append(ary, md)
+				if rsCnt >= cond.SearchSize {
+					break
+				}
+			}
+
+			for i := len(ary) - 1; i >= 0; i-- {
+				rs.Data = append(rs.Data, ary[i])
+			}
+		}
+		return rs
+	}
+
 	if cond.CurrentId == 0 {
 		// 第一页
 		var min, max uint32
@@ -578,6 +655,163 @@ func findSame(cond *SearchCondition, minDocumentId uint32, maxDocumentId uint32,
 }
 
 // 查找满足最小时间范围的最小文档id
+func findSameAsc(cond *SearchCondition, minDocumentId uint32, maxDocumentId uint32, storeLogData *storage.LogDataStorageHandle, widxs ...*WidxStorage) *SearchResult {
+	allloglevels := cmn.Join(cond.Loglevels, ",")
+	noLogLevels := cmn.IsBlank(allloglevels)
+	var rs = new(SearchResult)
+	rs.Total = cmn.Uint32ToString(storeLogData.TotalCount())
+
+	cnt := len(widxs)
+	minIdx := widxs[0]
+	minCount := minIdx.idxwordStorage.GetTotalCount(minIdx.word)
+	for i := 1; i < cnt; i++ {
+		ctmp := widxs[i].idxwordStorage.GetTotalCount(widxs[i].word)
+		if ctmp < minCount {
+			minCount = ctmp
+			minIdx = widxs[i]
+		}
+	}
+	if minCount > maxDocumentId-minDocumentId+1 {
+		minCount = maxDocumentId - minDocumentId + 1
+	}
+	rs.Count = cmn.Uint32ToString(minCount)
+
+	if cond.SearchSize <= 0 {
+		return rs
+	}
+
+	totalCount := minIdx.idxwordStorage.GetTotalCount(minIdx.word)
+	if totalCount == 0 {
+		return rs
+	}
+
+	rsCnt := 0
+	if cond.CurrentId == 0 || cond.Forward {
+		startPos := uint32(1)
+		if cond.CurrentId > 0 {
+			pos := minIdx.idxdocStorage.GetWordDocSeq(minIdx.word, cond.CurrentId)
+			if pos == 0 || pos >= totalCount {
+				return rs
+			}
+			startPos = pos + 1
+		}
+
+		for i := startPos; i <= totalCount; i++ {
+			docId := minIdx.idxwordStorage.GetDocId(minIdx.word, i)
+			if docId < minDocumentId || docId > maxDocumentId {
+				continue
+			}
+
+			flg := true
+			for n := 0; n < cnt; n++ {
+				if widxs[n] == minIdx {
+					continue
+				}
+				if widxs[n].idxdocStorage.GetWordDocSeq(widxs[n].word, docId) == 0 {
+					flg = false
+					break
+				}
+			}
+			if !flg {
+				continue
+			}
+
+			md, ok := getMatchedLogDataById(storeLogData, cond, docId, allloglevels, noLogLevels)
+			if !ok {
+				continue
+			}
+			rs.Data = append(rs.Data, md)
+			rsCnt++
+			if rsCnt >= cond.SearchSize {
+				break
+			}
+		}
+		return rs
+	}
+
+	pos := minIdx.idxdocStorage.GetWordDocSeq(minIdx.word, cond.CurrentId)
+	if pos <= 1 {
+		return rs
+	}
+
+	var ary []*logdata.LogDataModel
+	for i := pos - 1; i > 0; i-- {
+		docId := minIdx.idxwordStorage.GetDocId(minIdx.word, i)
+		if docId < minDocumentId || docId > maxDocumentId {
+			continue
+		}
+
+		flg := true
+		for n := 0; n < cnt; n++ {
+			if widxs[n] == minIdx {
+				continue
+			}
+			if widxs[n].idxdocStorage.GetWordDocSeq(widxs[n].word, docId) == 0 {
+				flg = false
+				break
+			}
+		}
+		if !flg {
+			continue
+		}
+
+		md, ok := getMatchedLogDataById(storeLogData, cond, docId, allloglevels, noLogLevels)
+		if !ok {
+			continue
+		}
+		ary = append(ary, md)
+		rsCnt++
+		if rsCnt >= cond.SearchSize {
+			break
+		}
+	}
+
+	for i := len(ary) - 1; i >= 0; i-- {
+		rs.Data = append(rs.Data, ary[i])
+	}
+	return rs
+}
+
+func getMatchedLogDataById(storeLogData *storage.LogDataStorageHandle, cond *SearchCondition, docId uint32, allloglevels string, noLogLevels bool) (*logdata.LogDataModel, bool) {
+	if cond.System == "" && cond.Systems[0] != "*" {
+		idxdocStorage := indexdoc.NewDocIndexStorage(storeLogData.GetStoreName())
+		has := false
+		for j, max2 := 0, len(cond.Systems); j < max2; j++ {
+			if idxdocStorage.GetWordDocSeq(cond.Systems[j], docId) > 0 {
+				has = true
+				break
+			}
+		}
+		if !has {
+			return nil, false
+		}
+	}
+
+	if cond.Loglevel == "" && len(cond.Loglevels) > 0 {
+		idxdocStorage := indexdoc.NewDocIndexStorage(storeLogData.GetStoreName())
+		has := false
+		for j, max2 := 0, len(cond.Loglevels); j < max2; j++ {
+			if idxdocStorage.GetWordDocSeq("!"+cond.Loglevels[j], docId) > 0 {
+				has = true
+				break
+			}
+		}
+		if !has {
+			return nil, false
+		}
+	}
+
+	md := storeLogData.GetLogDataModel(docId)
+	if md == nil {
+		return nil, false
+	}
+	md.StoreName = storeLogData.GetStoreName()
+	if !noLogLevels && !cmn.ContainsIngoreCase(allloglevels, md.LogLevel) {
+		return nil, false
+	}
+	return md, true
+}
+
 func findMinDocumentIdByDatetime(storeLogData *storage.LogDataStorageHandle, uiMin uint32, uiMax uint32, minDatetime string) uint32 {
 	if strings.Compare(minDatetime+".000", storeLogData.GetLogDataDocument(uiMin).ToLogDataModel().Date) <= 0 {
 		return uiMin // 边界外输入条件常发生，特殊照顾确认边界，一定程度提高性能

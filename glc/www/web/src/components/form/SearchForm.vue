@@ -88,6 +88,7 @@ const setSearchNormalMode = (normal = false) => {
     tmpFormDataNormal.datetime = [...(formData.value.datetime || [])];
     tmpFormDataNormal.user = formData.value.user || '';
     tmpFormDataNormal.searchKeys = formData.value.searchKeys || '';
+    tmpFormDataNormal.sortOrder = formData.value.sortOrder || defaultData.value.sortOrder || 'desc';
   }
   searchFormNormalMode.value = normal;
   moreVisible.value = false; // 收起，避免点相邻检索时还展开着条件
@@ -119,6 +120,7 @@ const fnReset = () => {
     formData.value.datetime.push(...(tmpFormDataNormal.datetime || []));
     formData.value.user = tmpFormDataNormal.user;
     formData.value.searchKeys = tmpFormDataNormal.searchKeys;
+    formData.value.sortOrder = tmpFormDataNormal.sortOrder || defaultData.value.sortOrder || 'desc';
   } else {
     // 【重置】正常检索时的重置
     formData.value.storage = defaultData.value.storage;
@@ -131,6 +133,7 @@ const fnReset = () => {
     formData.value.datetime.push(...(defaultData.value.datetime || []));
     formData.value.user = defaultData.value.user;
     formData.value.searchKeys = '';
+    formData.value.sortOrder = defaultData.value.sortOrder || 'desc';
   }
 
   moreVisible.value = false;
@@ -161,6 +164,10 @@ const noMoreSearchCondition = computed(() => {
   }
 
   // 日志
+  if ((formData.value.sortOrder || 'desc') != (defaultData.value.sortOrder || 'desc')) {
+    return false;
+  }
+
   const formDataLoglevel = formData.value.loglevel || [];
   const defaultDataLoglevel = defaultData.value.loglevel || [];
   if (formDataLoglevel.length != defaultDataLoglevel.length) {

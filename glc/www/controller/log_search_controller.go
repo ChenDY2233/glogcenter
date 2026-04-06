@@ -39,6 +39,10 @@ func LogSearchController(req *gweb.HttpRequest) *gweb.HttpResult {
 	startTime := time.Now()
 	mnt := sysmnt.NewSysmntStorage()
 	cond := &search.SearchCondition{SearchSize: conf.GetPageSize()}
+	cond.SortOrder = cmn.ToLower(req.GetFormParameter("sortOrder"))
+	if cond.SortOrder == "" {
+		cond.SortOrder = "desc"
+	}
 	cond.StoreName = req.GetFormParameter("storeName")                        // 日志仓条件
 	cond.SearchKey = req.GetFormParameter("searchKey")                        // 输入的查询关键词
 	cond.CurrentStoreName = req.GetFormParameter("currentStoreName")          // 滚动查询时定位用日志仓
@@ -116,9 +120,10 @@ func LogSearchController(req *gweb.HttpRequest) *gweb.HttpResult {
 	result := &search.SearchResult{PageSize: cmn.IntToString(conf.GetPageSize())}
 	var total uint32
 	var count uint32
-	storeItems := getStoreItems(cond.StoreName, cond.DatetimeFrom, cond.DatetimeTo)
+	storeItems := getStoreItems(cond.StoreName, cond.DatetimeFrom, cond.DatetimeTo, cond.SortOrder)
 	for i, max := 0, len(storeItems); i < max; i++ {
 		item := storeItems[i]
+		skipCurrentStore := shouldSkipCurrentStore(item.storeName, cond.CurrentStoreName, cond.IsOrderAsc())
 		if !item.isSearchRange {
 			// 不需要查数据，只查关联件数
 			total += mnt.GetStorageDataCount(item.storeName) // 累加总件数
@@ -126,7 +131,7 @@ func LogSearchController(req *gweb.HttpRequest) *gweb.HttpResult {
 		}
 
 		cond.SearchSize = conf.GetPageSize() - len(result.Data) // 本次需要查多少件
-		if cond.CurrentStoreName != "" && item.storeName > cond.CurrentStoreName {
+		if skipCurrentStore {
 			cond.SearchSize = 0 // 是范围内的日志仓，但不是本次要查的，设为0不查数据，只查关联件数
 		}
 
@@ -139,7 +144,7 @@ func LogSearchController(req *gweb.HttpRequest) *gweb.HttpResult {
 			result.LastStoreName = item.storeName         // 设定检索结果最后一条（最久远）日志所在的日志仓，页面向下滚动继续检索时定位用
 		}
 
-		if !(cond.CurrentStoreName != "" && item.storeName > cond.CurrentStoreName) {
+		if !skipCurrentStore {
 			// 仅针对更久远的日志仓
 			if len(result.Data) < conf.GetPageSize() && i < max-1 {
 				// 数据没查够，且后面还有日志仓待查询，准备好跨仓查询条件
@@ -161,7 +166,7 @@ func LogSearchController(req *gweb.HttpRequest) *gweb.HttpResult {
 }
 
 // 筛选出日志仓检索范围
-func getStoreItems(storeName string, datetimeFrom string, datetimeTo string) []*storageItem {
+func getStoreItems(storeName string, datetimeFrom string, datetimeTo string, sortOrder string) []*storageItem {
 	sysmntStore := sysmnt.NewSysmntStorage()
 	var items []*storageItem
 	if !conf.IsStoreNameAutoAddDate() {
@@ -180,7 +185,11 @@ func getStoreItems(storeName string, datetimeFrom string, datetimeTo string) []*
 		cacheTime = time.Now()
 	}
 	for i, max := 0, len(cacheStoreNames); i < max; i++ {
-		name := cacheStoreNames[i]
+		idx := i
+		if cmn.EqualsIngoreCase(sortOrder, "asc") {
+			idx = max - 1 - i
+		}
+		name := cacheStoreNames[idx]
 		item := &storageItem{storeName: name, total: sysmntStore.GetStorageDataCount(name)}
 		date := cmn.Right(name, 8) // yyyymmdd
 		if storeName == "" {
@@ -207,6 +216,16 @@ func getStoreItems(storeName string, datetimeFrom string, datetimeTo string) []*
 		items = append(items, item)
 	}
 	return items
+}
+
+func shouldSkipCurrentStore(storeName string, currentStoreName string, asc bool) bool {
+	if currentStoreName == "" {
+		return false
+	}
+	if asc {
+		return storeName < currentStoreName
+	}
+	return storeName > currentStoreName
 }
 
 func getTimeInfo(milliseconds int64) string {
